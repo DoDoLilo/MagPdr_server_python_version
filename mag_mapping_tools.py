@@ -33,7 +33,8 @@ def get_2d_mag_qiu(q, mag):
     mag_v = np.abs(glob_mag[:, 2:3])  # 垂直分量 = z轴结果
     mag_h = np.linalg.norm(glob_mag[:, 0:2], axis=1, keepdims=True)  # 水平分量 = x, y的合
     mag_total = np.linalg.norm(glob_mag, axis=1, keepdims=True)  # 总量 = x,y,z的合
-    return np.concatenate([mag_v, mag_h, mag_total], axis=1)
+    # return np.concatenate([mag_v, mag_h, mag_total], axis=1)
+    return np.concatenate([mag_v, mag_h], axis=1)
 
 
 # 内插填补
@@ -906,8 +907,8 @@ def produce_transfer_candidates_and_search(start_transfer, area_config,
 # 此时轨迹只会在该门的一边 且 一段必须连着坐标。所以{△x, △y, △angle(弧度)}只需考虑N * angle 180°变换内的约束。
 # 大大减少了匹配时间复杂度、提高了准确率.
 # 输入：entrance_list: [0, map_size_x][0,map_size_y]坐标系下的入口坐标
-#      match_seq:待匹配的序列[N][x,y, mv, mh, PDRindex]
-def inital_full_deep_search(entrance_arr, match_seq,
+#      match_seq:待匹配的序列[N][x,y, mv, mh]
+def inital_full_deep_search(entrances, match_seq,
                             mag_map, block_size,
                             step, max_iteration, upper_limit_of_gaussnewteon):
     # 从多个入口中找出loss最小的transfer
@@ -922,8 +923,7 @@ def inital_full_deep_search(entrance_arr, match_seq,
 
     start_x = match_seq[0][0]
     start_y = match_seq[0][1]
-    for index in range(0, len(entrance_arr)):
-        entrance = entrance_arr[0]
+    for entrance in entrances:
         for transfer_candidate in transfer_candidates:
             # 先将xy轨迹变换到entrance坐标，不修改原来的match_seq
             # 构建transfer，先用transfer_candidate旋转start_x,y，然后将旋转后的点平移到entrance，该平移量+旋转角度=transfer
@@ -950,6 +950,23 @@ def inital_full_deep_search(entrance_arr, match_seq,
                     break
 
     return min_transfer, min_map_xy, min_loss
+
+
+# TODO 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]]]变为[N][x,y, mv, mh]
+def change_pdr_thread_data_to_match_seq(pdr_data_buffer):
+    # 构建match_seq[N][x,y, mv, mh]
+    match_seq_arr = np.empty(shape=[len(pdr_data_buffer), 4], dtype=float)
+    index = 0
+    for pdr_data in pdr_data_buffer:
+        mag_quat_arr = np.array(pdr_data[2])
+        mvh_arr = get_2d_mag_qiu(mag_quat_arr[:, 3:7], mag_quat_arr[:, 0:3])
+        match_seq_arr[index][0] = pdr_data[1][0]    # x
+        match_seq_arr[index][1] = pdr_data[1][1]    # y
+        match_seq_arr[index][2] = sum(mvh_arr[:, 0]) / len(mvh_arr)     # mv
+        match_seq_arr[index][3] = sum(mvh_arr[:, 1]) / len(mvh_arr)     # mh
+        index += 1
+
+    return match_seq_arr
 
 
 # 均值移除

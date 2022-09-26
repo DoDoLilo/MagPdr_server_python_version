@@ -2,6 +2,7 @@ import threading
 from enum import Enum
 import math
 import queue
+import mag_mapping_tools as MMT
 
 # -----------地图系统参数------------------
 MAP_SIZE_X = 70.  # 地图坐标系大小 0-MAP_SIZE_X ，0-MAP_SIZE_Y（m）
@@ -53,10 +54,17 @@ class MagPositionThread(threading.Thread):
         self.coordinate_offset = []  # move_x,move_y
         self.entrance_lsit = [[]]
 
+        mag_map = MMT.rebuild_map_from_mvh_files(PATH_MAG_MAP)
+        if mag_map is None:
+            print("地磁指纹文件错误，初始化失败！")
+            return
+        self.mag_map = mag_map
+
     def run(self) -> None:
         self.mag_position_thread(self.in_data_queue, self.out_data_queue, self.coordinate_offset, self.entrance_lsit)
 
     # 输入：容器引用、地图坐标系参数（左下角、右上角坐标）、地图所有入口的坐标
+    #    coordinate_offset，将entrance坐标平移到指纹库坐标系0-map_size_x, 0-map_size_y的move_x,move_y
     # 从in_data_queue中获取pdr_thread输出的 [time, [pdr_x, y], [10*[mag x, y, z]]]
     # 往out_data_list中放入[time, [mag_position_x,y]]
     def mag_position_thread(self, in_data_queue, out_data_queue, coordinate_offset, entrance_list) -> None:
@@ -83,12 +91,27 @@ class MagPositionThread(threading.Thread):
                 for e in range(0, len(entrance_list)):
                     entrance_list[e][0] += coordinate_offset[0]
                     entrance_list[e][1] += coordinate_offset[1]
-                # 初始化搜索成功，状态转移至稳定搜索阶段 TODO 而pdr坐标，并不需要使用move xy!都会包含在transfer里面
-                # TODO 调用初始化固定区域搜索
+
+                # 初始化搜索成功，状态转移至稳定搜索阶段，*而pdr坐标，并不需要使用move xy!都会包含在transfer里面
+                # 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z]]]变为[N][x,y, mv, mh]
+                match_seq = MMT.change_pdr_thread_data_to_match_seq(inital_data_buffer)
+
+                # 调用初始化固定区域搜索
+                inital_transfer, inital_map_xy, inital_loss = MMT.inital_full_deep_search(
+                    entrance_list, match_seq,
+                    self.mag_map, BLOCK_SIZE,
+                    STEP, MAX_ITERATION, UPPER_LIMIT_OF_GAUSSNEWTEON
+                )
+
+                # 将结果放入输出队列中，注意外部如果不及时取走结果，这一步可能（队列满）会阻塞，导致后续代码全部停止！
+                out_data_queue.put(inital_map_xy)
+
                 self.state = MagPositionState.STABLE_RUNNING
                 continue
             if self.state == MagPositionState.STABLE_RUNNING:
                 # 正在运行，从数据输入流中
+                # TODO 基于 inital_transfer, inital_map_xy, inital_loss，
+                #  按照上面的状态写法，写后续的匹配
 
                 continue
 
