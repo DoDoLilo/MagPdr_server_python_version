@@ -952,21 +952,42 @@ def inital_full_deep_search(entrances, match_seq,
     return min_transfer, min_map_xy, min_loss
 
 
-# TODO 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]]]变为[N][x,y, mv, mh]
-def change_pdr_thread_data_to_match_seq(pdr_data_buffer):
+# 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]]]变为[N][x,y, mv, mh]
+# 该函数不会修改pdr_data_buffer指向的内容
+# 下采样
+def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis):
     # 构建match_seq[N][x,y, mv, mh]
     match_seq_arr = np.empty(shape=[len(pdr_data_buffer), 4], dtype=float)
     index = 0
     for pdr_data in pdr_data_buffer:
         mag_quat_arr = np.array(pdr_data[2])
         mvh_arr = get_2d_mag_qiu(mag_quat_arr[:, 3:7], mag_quat_arr[:, 0:3])
-        match_seq_arr[index][0] = pdr_data[1][0]    # x
-        match_seq_arr[index][1] = pdr_data[1][1]    # y
-        match_seq_arr[index][2] = sum(mvh_arr[:, 0]) / len(mvh_arr)     # mv
-        match_seq_arr[index][3] = sum(mvh_arr[:, 1]) / len(mvh_arr)     # mh
+        # 滤波
+        mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], 3)
+        mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], 3)
+        mvh_arr = np.vstack((mv_filtered_emd, mh_filtered_emd)).transpose()
+        # 合并
+        match_seq_arr[index][0] = pdr_data[1][0]  # x
+        match_seq_arr[index][1] = pdr_data[1][1]  # y
+        match_seq_arr[index][2] = sum(mvh_arr[:, 0]) / len(mvh_arr)  # mv
+        match_seq_arr[index][3] = sum(mvh_arr[:, 1]) / len(mvh_arr)  # mh
         index += 1
 
-    return match_seq_arr
+    # 下采样
+    match_seq_list = []
+    temp_dis = 0
+    last_index = 0
+    for i in range(1, len(match_seq_arr)):
+        temp_dis += math.hypot(match_seq_arr[i][0] - match_seq_arr[i - 1][0],
+                               match_seq_arr[i][1] - match_seq_arr[i - 1][1])
+        if temp_dis >= down_sip_dis or i == len(match_seq_arr) - 1:
+            temp_dis = 0
+            mid_index = int(last_index + (i - last_index) / 2)
+            match_seq_list.append([match_seq_arr[mid_index][0], match_seq_arr[mid_index][1],
+                                   np.mean(match_seq_arr[last_index:i, 2]), np.mean(match_seq_arr[last_index:i, 3])])
+            last_index = i
+
+    return np.array(match_seq_list)
 
 
 # 均值移除
