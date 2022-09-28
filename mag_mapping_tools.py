@@ -918,8 +918,8 @@ def inital_full_deep_search(entrances, match_seq,
 
     # 构建0-360°，1.5°粒度的transfer
     transfer_candidates = []
-    for angle in range(0, 360, 1.5):
-        transfer_candidates.append([0, 0, angle])
+    for angle in np.arange(0, 360, 1.5):
+        transfer_candidates.append([0, 0, math.radians(angle)])
 
     start_x = match_seq[0][0]
     start_y = match_seq[0][1]
@@ -927,8 +927,8 @@ def inital_full_deep_search(entrances, match_seq,
         for transfer_candidate in transfer_candidates:
             # 先将xy轨迹变换到entrance坐标，不修改原来的match_seq
             # 构建transfer，先用transfer_candidate旋转start_x,y，然后将旋转后的点平移到entrance，该平移量+旋转角度=transfer
-            new_xy = transfer_axis_of_xy_seq([start_x, start_y], transfer_candidate)
-            transfer = np.array([entrance[0] - new_xy[0], entrance[1] - new_xy[1], transfer_candidate[2]])
+            new_xy = transfer_axis_of_xy_seq([[start_x, start_y]], transfer_candidate)
+            transfer = np.array([entrance[0] - new_xy[0][0], entrance[1] - new_xy[0][1], transfer_candidate[2]])
 
             # 将该start_transfer应用到match_seq_copy，进行高斯牛顿迭代，找到最小loss
             out_of_map, start_loss, not_use_map_xy, not_use_transfer = cal_new_transfer_and_last_loss_xy(
@@ -963,9 +963,9 @@ def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis):
         mag_quat_arr = np.array(pdr_data[2])
         mvh_arr = get_2d_mag_qiu(mag_quat_arr[:, 3:7], mag_quat_arr[:, 0:3])
         # 滤波
-        mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], 3)
-        mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], 3)
-        mvh_arr = np.vstack((mv_filtered_emd, mh_filtered_emd)).transpose()
+        # mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], 3)
+        # mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], 3)
+        # mvh_arr = np.vstack((mv_filtered_emd, mh_filtered_emd)).transpose()
         # 合并
         match_seq_arr[index][0] = pdr_data[1][0]  # x
         match_seq_arr[index][1] = pdr_data[1][1]  # y

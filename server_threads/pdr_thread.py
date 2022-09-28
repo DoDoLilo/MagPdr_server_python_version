@@ -25,8 +25,8 @@ class PdrThread(threading.Thread):
     def pdr_thread(self, in_data_queue, out_data_queue) -> None:
         # 由PDR线程实现对齐，目前先用文件载入进行
         PATH_PDR_RAW = [
-            "./data/XingHu hall 8F test/position_test/8/IMU-88-8-189.88230883318997 Pixel 6_sync.csv.npy",
-            "./data/XingHu hall 8F test/position_test/8/IMU-88-8-189.88230883318997 Pixel 6_sync.csv"]
+            "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\\5\IMU-88-5-291.0963959547511 Pixel 6_sync.csv.npy",
+            "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\\5\IMU-88-5-291.0963959547511 Pixel 6_sync.csv"]
 
         # 载入数据
         pdr_xy = np.load(PATH_PDR_RAW[0])[:, 0:2]
@@ -44,6 +44,10 @@ class PdrThread(threading.Thread):
                     mag_quat_list.append([imu_data[i][21], imu_data[i][22], imu_data[i][23],
                                           imu_data[i][7], imu_data[i][8], imu_data[i][9], imu_data[i][10]])
 
+                index = pdr_index + offset
+                if index >= len(pdr_xy):
+                    break
+
                 out_data_queue.put([imu_data[imu_index][0],
-                                    [pdr_xy[pdr_index + offset][0], pdr_xy[pdr_index + offset][1]],
+                                    [pdr_xy[index][0], pdr_xy[index][1]],
                                     mag_quat_list])

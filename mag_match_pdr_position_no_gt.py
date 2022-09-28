@@ -17,8 +17,8 @@ DOWN_SIP_DIS = BLOCK_SIZE  # 下采样粒度（m），应为块大小的整数�
 SLIDE_STEP = 4  # 滑动窗口步长
 SLIDE_BLOCK_SIZE = DOWN_SIP_DIS  # 滑动窗口最小粒度（m），最小应为下采样粒度！
 MAX_ITERATION = 45  # 高斯牛顿最大迭代次数
-TARGET_MEAN_LOSS = 13  # 目标损失
-STEP = 1 / 25  # 迭代步长，牛顿高斯迭代是局部最优，步长要小
+TARGET_MEAN_LOSS = 20  # 目标损失
+STEP = 1 / 50  # 迭代步长，牛顿高斯迭代是局部最优，步长要小
 UPPER_LIMIT_OF_GAUSSNEWTEON = 20 * (MAX_ITERATION - 1)  # 当前参数下高斯牛顿迭代MAX_ITERATION的能降低的loss上限
 # ---------其他参数----------------------------
 PDR_IMU_ALIGN_SIZE = 10  # 1个PDR坐标对应的imu\iLocator数据个数，iLocator与imu已对齐
