@@ -16,8 +16,7 @@ class FakeUiThread(threading.Thread):
     # in_data_queue每个单位 = [Ni][x, y]，每隔0.5秒获取其中的所有数据、拼接到final_xy、并paint到画布上
     def get_result_and_paint(self, in_data_queue, paint_map_size) -> None:
         final_xy = []
+
         while True:
             final_xy.extend(in_data_queue.get())
-            # final_xy = in_data_queue.get()
             PT.paint_xy_list([np.array(final_xy)], ['MagPDR'], paint_map_size, "Result")
-            time.sleep(0.5)

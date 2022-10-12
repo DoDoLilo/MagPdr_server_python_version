@@ -898,7 +898,7 @@ def produce_transfer_candidates_and_search(start_transfer, area_config,
         return transfer, min_xy
 
 
-# TODO 初始固定区域搜索，论文原文如下：
+# 初始固定区域搜索，论文原文如下：
 # “进入磁场特征匹配算法阶段，考虑到高斯牛顿迭代搜索是局部最优方法，
 # 第一次匹配对固定区域进行遍历搜索，避免初始条件不够精确造成匹配结果非全局最优，
 # 其后的匹配则可直接利用 PDR 推算结果作为匹配搜索初值；”
@@ -916,13 +916,14 @@ def inital_full_deep_search(entrances, match_seq,
     min_transfer = None
     min_map_xy = None
 
-    # 构建0-360°，1.5°粒度的transfer
+    # 构建0-360°，1.°粒度的transfer
     transfer_candidates = []
-    for angle in np.arange(0, 360, 1.5):
+    for angle in np.arange(0, 360, 1):
         transfer_candidates.append([0, 0, math.radians(angle)])
 
     start_x = match_seq[0][0]
     start_y = match_seq[0][1]
+
     for entrance in entrances:
         for transfer_candidate in transfer_candidates:
             # 先将xy轨迹变换到entrance坐标，不修改原来的match_seq
@@ -933,6 +934,7 @@ def inital_full_deep_search(entrances, match_seq,
             # 将该start_transfer应用到match_seq_copy，进行高斯牛顿迭代，找到最小loss
             out_of_map, start_loss, not_use_map_xy, not_use_transfer = cal_new_transfer_and_last_loss_xy(
                 transfer, match_seq, mag_map, block_size, step)
+
             if out_of_map or (min_loss is not None and start_loss - min_loss > upper_limit_of_gaussnewteon):
                 # 超过了高斯牛顿的迭代能力，不用继续迭代了，直接下一个candidate
                 continue
@@ -952,29 +954,33 @@ def inital_full_deep_search(entrances, match_seq,
     return min_transfer, min_map_xy, min_loss
 
 
-# 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]]]变为[N][x,y, mv, mh]
+# 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]], pdr_index]变为[N][x,y, mv, mh]
 # 该函数不会修改pdr_data_buffer指向的内容
 # 下采样
 def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis):
     # 构建match_seq[N][x,y, mv, mh]
-    match_seq_arr = np.empty(shape=[len(pdr_data_buffer), 4], dtype=float)
+    match_seq_arr = np.empty(shape=[len(pdr_data_buffer), 5], dtype=float)
     index = 0
+
+    # 计算分量
     for pdr_data in pdr_data_buffer:
         mag_quat_arr = np.array(pdr_data[2])
         mvh_arr = get_2d_mag_qiu(mag_quat_arr[:, 3:7], mag_quat_arr[:, 0:3])
         # 滤波
-        # mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], 3)
-        # mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], 3)
+        # mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], 2)
+        # mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], 2)
         # mvh_arr = np.vstack((mv_filtered_emd, mh_filtered_emd)).transpose()
         # 合并
         match_seq_arr[index][0] = pdr_data[1][0]  # x
         match_seq_arr[index][1] = pdr_data[1][1]  # y
-        match_seq_arr[index][2] = sum(mvh_arr[:, 0]) / len(mvh_arr)  # mv
-        match_seq_arr[index][3] = sum(mvh_arr[:, 1]) / len(mvh_arr)  # mh
+        match_seq_arr[index][2] = sum(mvh_arr[:, 0]) / len(mvh_arr)  # mean(mv)
+        match_seq_arr[index][3] = sum(mvh_arr[:, 1]) / len(mvh_arr)  # mean(mh)
+        match_seq_arr[index][4] = pdr_data[3]
         index += 1
 
-    # 下采样
+    # 下采样，过程中记录pdr原始下标
     match_seq_list = []
+    pdr_index_list = []
     temp_dis = 0
     last_index = 0
     for i in range(1, len(match_seq_arr)):
@@ -984,10 +990,12 @@ def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis):
             temp_dis = 0
             mid_index = int(last_index + (i - last_index) / 2)
             match_seq_list.append([match_seq_arr[mid_index][0], match_seq_arr[mid_index][1],
-                                   np.mean(match_seq_arr[last_index:i, 2]), np.mean(match_seq_arr[last_index:i, 3])])
+                                   np.mean(match_seq_arr[last_index:i, 2]),
+                                   np.mean(match_seq_arr[last_index:i, 3])])
+            pdr_index_list.append(match_seq_arr[mid_index][4])
             last_index = i
 
-    return np.array(match_seq_list)
+    return np.array(match_seq_list), np.array(pdr_index_list)
 
 
 # 均值移除

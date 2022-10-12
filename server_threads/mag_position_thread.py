@@ -2,6 +2,7 @@ import threading
 from enum import Enum
 import math
 import queue
+import numpy as np
 import mag_mapping_tools as MMT
 
 # -----------地图系统参数------------------
@@ -11,16 +12,16 @@ INITAIL_BUFFER_DIS = 10  # 初始态匹配时，缓存池大小（m） >= BUFFER
 BUFFER_DIS = 8  # 稳定态匹配时，缓冲池大小（m）
 DOWN_SIP_DIS = BLOCK_SIZE  # 下采样粒度（m），应为块大小的整数倍？（下采样越小则相同长度序列的匹配点越多，匹配难度越大！）
 # --------迭代搜索参数----------------------
-SLIDE_STEP = 5  # 滑动窗口步长
+SLIDE_STEP = 2  # 滑动窗口步长
 SLIDE_BLOCK_SIZE = DOWN_SIP_DIS  # 滑动窗口最小粒度（m），>=DOWN_SIP_DIS！
 MAX_ITERATION = 50  # 高斯牛顿最大迭代次数
-TARGET_MEAN_LOSS = 25  # 目标损失
-STEP = 1 / 60  # 迭代步长，牛顿高斯迭代是局部最优，步长要小
-UPPER_LIMIT_OF_GAUSSNEWTEON = 20 * (MAX_ITERATION - 1)  # 当前参数下高斯牛顿迭代MAX_ITERATION的能降低的loss上限
+TARGET_MEAN_LOSS = 22  # 目标损失
+STEP = 1 / 90  # 迭代步长，牛顿高斯迭代是局部最优，步长要小
+UPPER_LIMIT_OF_GAUSSNEWTEON = 10 * (MAX_ITERATION - 1)  # 当前参数下高斯牛顿迭代MAX_ITERATION的能降低的loss上限
 # ---------其他参数----------------------------
 PDR_IMU_ALIGN_SIZE = 10  # 1个PDR坐标对应的imu\iLocator数据个数，iLocator与imu已对齐
 TRANSFERS_PRODUCE_CONFIG = [[0.265, 0.265, math.radians(1.8)],  # 枚举transfers的参数，[0] = [△x, △y(米), △angle(弧度)]
-                            [5, 5, 7]]   # [1] = [枚举的正负个数]
+                            [6, 6, 8]]   # [1] = [枚举的正负个数]
 ORIGINAL_START_TRANSFER = [0., 0., math.radians(0.)]  # 初始Transfer[△x, △y(米), △angle(弧度)]：先绕原坐标原点逆时针旋转，然后再平移
 # ---------数据文件路径---------------------------
 # 地磁指纹库文件，[0]为mv.csv，[1]为mh.csv
@@ -68,8 +69,9 @@ class MagPositionThread(threading.Thread):
     def mag_position_thread(self, in_data_queue, out_data_queue, coordinate_offset, entrance_list) -> None:
         transfer = None
         first_window_start_distance = INITAIL_BUFFER_DIS + SLIDE_BLOCK_SIZE * SLIDE_STEP - BUFFER_DIS  # 第一个滑动窗口的起始距离
-        window_buffer = None
+        window_buffer = []
         window_buffer_dis = 0
+        pdr_index_list = []
         slide_distance = SLIDE_STEP * SLIDE_BLOCK_SIZE
 
         while True:
@@ -79,19 +81,21 @@ class MagPositionThread(threading.Thread):
                 self.state = MagPositionState.INITIALIZING
 
                 cur_data = in_data_queue.get()
-                if cur_data[0] == -1:
+                if isinstance(cur_data, str) and cur_data == 'END':
                     self.state = MagPositionState.STOP
                     continue
+                # 重新初始化各种参数
                 inital_data_buffer = [cur_data]
                 window_buffer = []
                 window_buffer_dis = 0
+                pdr_index_list = []
                 window_start = False
                 distance = 0
 
                 # 从数据输入流中取地足够初始遍历的数据。注意如果过程中遇到-1，则回到STOP状态
                 while distance < INITAIL_BUFFER_DIS:
                     cur_data = in_data_queue.get()
-                    if cur_data[0] == -1:
+                    if isinstance(cur_data, str) and cur_data == 'END':
                         self.state = MagPositionState.STOP
                         break
 
@@ -116,7 +120,8 @@ class MagPositionThread(threading.Thread):
 
                 # 初始化搜索成功，状态转移至稳定搜索阶段，*而pdr坐标，并不需要使用move xy!都会包含在transfer里面
                 # 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z]]]变为[N][x,y, mv, mh]并且下采样
-                match_seq = MMT.change_pdr_thread_data_to_match_seq(inital_data_buffer, DOWN_SIP_DIS)
+                match_seq, pdr_index_arr = MMT.change_pdr_thread_data_to_match_seq(inital_data_buffer, DOWN_SIP_DIS)
+                pdr_index_list.extend(pdr_index_arr)
 
                 # 调用初始化固定区域搜索
                 inital_transfer, inital_map_xy, inital_loss = MMT.inital_full_deep_search(
@@ -136,18 +141,12 @@ class MagPositionThread(threading.Thread):
                 # 稳定运行态
                 #  此时 每往window_buffer中放入DOWN_SIP_DIS长度的数据，则调用一次匹配算法，并将结果只应用到新加的那段坐标
                 #  最后从window_buffer中删除开头一段长度等于DOWN_SIP_DIS的数据
-                if len(window_buffer) == 0:
-                    cur_data = in_data_queue.get()
-                    if cur_data[0] == -1:
-                        self.state = MagPositionState.STOP
-                        continue
-                    window_buffer.append(cur_data)
-                    window_buffer_dis = 0
-
                 while self.state == MagPositionState.STABLE_RUNNING:
                     cur_data = in_data_queue.get()
-                    if cur_data[0] == -1:
+                    if isinstance(cur_data, str) and cur_data == 'END':
                         self.state = MagPositionState.STOP
+                        out_data_queue.put('END')  # 放入-1供外部知晓停止
+                        out_data_queue.put(np.array(pdr_index_list))
                         break
 
                     last_data = window_buffer[len(window_buffer) - 1]
@@ -157,7 +156,16 @@ class MagPositionThread(threading.Thread):
                     if window_buffer_dis >= BUFFER_DIS:
                         # 填满一个窗口，调用一次匹配算法，并将结果只应用到新加的那段坐标
                         print("\n")
-                        match_seq = MMT.change_pdr_thread_data_to_match_seq(window_buffer, DOWN_SIP_DIS)
+                        match_seq, pdr_index_arr = MMT.change_pdr_thread_data_to_match_seq(window_buffer, DOWN_SIP_DIS)
+                        # 只往pdr_index_list放入比末尾大的新下标
+                        max_index = pdr_index_list[len(pdr_index_list) - 1]
+                        new_xy_num = 0
+                        for pi in range(0, len(pdr_index_arr)):
+                            if pdr_index_arr[pi] > max_index:
+                                pdr_index_list.extend(pdr_index_arr[pi:])
+                                new_xy_num = len(pdr_index_arr) - pi
+                                break
+
                         start_transfer = transfer.copy()
                         transfer, map_xy = MMT.produce_transfer_candidates_and_search(start_transfer,
                                                                                       TRANSFERS_PRODUCE_CONFIG,
@@ -171,15 +179,7 @@ class MagPositionThread(threading.Thread):
                         print("window points number = ", len(window_buffer))
                         print("window buffer dis = ", window_buffer_dis)
                         # 只取出map_xy中slide_distance长度的结果，放入到out_data_queue中
-                        result_index = 0
-                        result_dis = 0
-                        for ri in range(len(map_xy) - 2, -1, -1):
-                            result_dis += math.hypot(map_xy[ri + 1][0] - map_xy[ri][0],
-                                                     map_xy[ri + 1][1] - map_xy[ri][0])
-                            if result_dis >= slide_distance:
-                                result_index = ri
-                                break
-                        out_data_queue.put(map_xy[result_index: len(map_xy), :])
+                        out_data_queue.put(map_xy[len(map_xy) - new_xy_num: len(map_xy), :])
 
                         # 从window_buffer中舍弃开头slide_distance长度的数据
                         abandon_index = len(window_buffer)
