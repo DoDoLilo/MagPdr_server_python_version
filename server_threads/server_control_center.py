@@ -4,25 +4,33 @@
 # 并启动它们
 from server_threads.fake_pdr_thread import FakePdrThread
 from server_threads.mag_position_thread import MagPositionThread
+from server_threads.fake_socket_thread import FakeSocketThread
+from server_threads.pdr_thread import PdrThread
 import queue
 import matplotlib.pyplot as plt
 import numpy as np
 import mag_mapping_tools as MMT
 import test_tools as TEST
 import paint_tools as PT
+import os
+
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 MAP_SIZE_X = 70.  # 地图坐标系大小 0-MAP_SIZE_X ，0-MAP_SIZE_Y（m）
 MAP_SIZE_Y = 28.
 MOVE_X = 10.
 MOVE_Y = 15.
 
-# PATH_PDR_RAW = [
-#     "D:\pythonProjects\MagPdr_server\data/XingHu hall 8F test/position_test/5/IMU-88-5-291.0963959547511 Pixel 6_sync.csv.npy",
-#     "D:\pythonProjects\MagPdr_server\data/XingHu hall 8F test/position_test/5/IMU-88-5-291.0963959547511 Pixel 6_sync.csv"]
-#
+PDR_MODEL_FILE = "../pdr/ronin.pt"
+
 PATH_PDR_RAW = [
-    "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test/6\IMU-88-6-194.9837361431375 Pixel 6_sync.csv.npy",
-    "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test/6\IMU-88-6-194.9837361431375 Pixel 6_sync.csv"]
+    "D:\pythonProjects\MagPdr_server\data/XingHu hall 8F test/position_test/5/IMU-88-5-291.0963959547511 Pixel 6_sync.csv.npy",
+    "D:\pythonProjects\MagPdr_server\data/XingHu hall 8F test/position_test/5/IMU-88-5-291.0963959547511 Pixel 6_sync.csv"]
+#
+# PATH_PDR_RAW = [
+#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test/6\IMU-88-6-194.9837361431375 Pixel 6_sync.csv.npy",
+#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test/6\IMU-88-6-194.9837361431375 Pixel 6_sync.csv"]
+
 
 # PATH_PDR_RAW = [
 #     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\\7\IMU-88-7-270.6518297687728 Pixel 6_sync.csv.npy",
@@ -43,10 +51,13 @@ def main():
     mag_position_config_file = "D:\pythonProjects\MagPdr_server\server_threads\mag_position_config.json"
 
     # 定义线程
-    pdr_thread = FakePdrThread(pdr_input_queue, pdr_output_queue, PATH_PDR_RAW)
+    fake_socket_thread = FakeSocketThread(PATH_PDR_RAW[1], socket_output_queue)
+    pdr_thread = PdrThread(pdr_input_queue, pdr_output_queue, PDR_MODEL_FILE)
+    # pdr_thread = FakePdrThread(pdr_input_queue, pdr_output_queue, PATH_PDR_RAW)
     mag_position_thread = MagPositionThread(mag_position_input_queue, mag_position_output_queue,
                                             mag_position_config_file)
     # 启动线程
+    fake_socket_thread.start()
     pdr_thread.start()
     mag_position_thread.start()
 

@@ -1,5 +1,6 @@
 import threading
 import enum
+import pdr.pdr_vxy as PDR
 
 
 class PdrState(enum.Enum):
@@ -8,14 +9,15 @@ class PdrState(enum.Enum):
 
 
 class PdrThread(threading.Thread):
-
-    def __init__(self, in_data_queue, out_data_queue):
+    # in_data_queue 每个单位为
+    def __init__(self, in_data_queue, out_data_queue, pdr_model_path):
         super(PdrThread, self).__init__()
         self.in_data_queue = in_data_queue
         self.out_data_queue = out_data_queue
         self.window_size = 200
         self.slide_size = 10
         self.state = PdrState.STOP
+        self.pdr_model_path = pdr_model_path
 
     def run(self) -> None:
         self.pdr_thread()
@@ -29,16 +31,18 @@ class PdrThread(threading.Thread):
         px, py = 0, 0
         window_size = 200
         slide_size = 10
+        pdr_index = 0
 
         while True:
             if self.state == PdrState.STOP:
                 window_buffer = []
                 px, py = 0, 0
-                # 接收 window_size 个数据，过程中遇到 time = -1则继续
+                pdr_index = 0
+                # 接收 window_size 个数据，过程中遇到 'END'则不继续
                 succeed = True
                 for i in range(0, window_size):
                     cur_data = self.in_data_queue.get()
-                    if cur_data[0] == -1:
+                    if isinstance(cur_data, str) and cur_data == 'END':
                         succeed = False
                         break
                     else:
@@ -50,17 +54,41 @@ class PdrThread(threading.Thread):
                 continue
 
             if self.state == PdrState.RUNNING:
-                # TODO 调用模型计算window_buffer数据的输出Vx,Vy，
-                #  ΔT = (window_buffer.time[slide_size] - window_buffer.time[0]) / 1000  因为time是ms
-                #  Px,Py = Vx * ΔT, Vy * ΔT
-                #  将结果放入out_data_queue中
+                # 调用模型计算window_buffer数据的输出Vx,Vy，
+                # ΔT = (window_buffer.time[slide_size] - window_buffer.time[0]) / 1000  因为time是ms
+                # Px,Py = Vx * ΔT, Vy * ΔT
+                # 构建pdr输入数据[200][acc, gyro, ori]
+                pdr_input = []
+                for line in window_buffer:
+                    pdr_input.append([line[1], line[2], line[3],
+                                      line[4], line[5], line[6],
+                                      line[10], line[11], line[12], line[13]])
 
-                # 继续接收 slide_size 个数据，过程中遇到 time = -1，不仅要转换状态，还要往out_data_queue中放入-1让后续线程知晓
+                v_xy = PDR.workpart(pdr_input, self.pdr_model_path)
+                vx, vy = v_xy[0][0], v_xy[0][1]
+                slide_time = (window_buffer[slide_size][0] - window_buffer[0][0]) / 1000
+                px += vx * slide_time
+                py += vy * slide_time
+
+                # 将 [time, [px, py], mag_quat_list, pdr_index]放入out_data_queue中
+                mag_quat_list = []
+                for line in window_buffer[0: slide_size]:
+                    mag_quat_list.append([line[7], line[8], line[9],
+                                          line[10], line[11], line[12], line[13]])
+
+                self.out_data_queue.put([window_buffer[slide_size][0],
+                                         [px, py],
+                                         mag_quat_list,
+                                         pdr_index])
+                pdr_index += 1
+
+                # 继续接收 slide_size 个数据，过程中遇到'END'，不仅要转换状态，还要往out_data_queue中放入'END'让后续线程知晓
                 del window_buffer[0: slide_size]  # 删除开头，滑动窗口
                 for i in range(0, slide_size):
                     cur_data = self.in_data_queue.get()
-                    if cur_data[0] == -1:
+                    if isinstance(cur_data, str) and cur_data == 'END':
                         self.state = PdrState.STOP
+                        self.out_data_queue.put('END')
                         break
                     else:
                         window_buffer.append(cur_data)
