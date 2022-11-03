@@ -13,34 +13,43 @@ import mag_mapping_tools as MMT
 import test_tools as TEST
 import paint_tools as PT
 import os
+import math
+import time
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
-MAP_SIZE_X = 70.  # 地图坐标系大小 0-MAP_SIZE_X ，0-MAP_SIZE_Y（m）
-MAP_SIZE_Y = 28.
-MOVE_X = 10.
-MOVE_Y = 15.
+# 地图坐标系大小 0-MAP_SIZE_X ，0-MAP_SIZE_Y（m）
+MAP_SIZE_X = 35.0
+MAP_SIZE_Y = 20.0
+MOVE_X = 5.0
+MOVE_Y = 5.0
 
 PDR_MODEL_FILE = "../pdr/ronin.pt"
 
+# PATH_PDR_RAW = [
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\5\IMU-812-5-277.2496012617084 Pixel 6_sync.csv.npy",
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\5\IMU-812-5-277.2496012617084 Pixel 6_sync.csv"]
+
+# PATH_PDR_RAW = [
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\6\IMU-812-6-269.09426660025395 Pixel 6_sync.csv.npy",
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\6\IMU-812-6-269.09426660025395 Pixel 6_sync.csv"]
+
+# PATH_PDR_RAW = [
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\7\IMU-812-7-195.4948665194862 Pixel 6_sync.csv.npy",
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\7\IMU-812-7-195.4948665194862 Pixel 6_sync.csv"]
+
+# PATH_PDR_RAW = [
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\8\IMU-812-8-193.38120983931242 Pixel 6_sync.csv.npy",
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\8\IMU-812-8-193.38120983931242 Pixel 6_sync.csv"]
+
 PATH_PDR_RAW = [
-    "D:\pythonProjects\MagPdr_server\data/XingHu hall 8F test/position_test/5/IMU-88-5-291.0963959547511 Pixel 6_sync.csv.npy",
-    "D:\pythonProjects\MagPdr_server\data/XingHu hall 8F test/position_test/5/IMU-88-5-291.0963959547511 Pixel 6_sync.csv"]
-#
-# PATH_PDR_RAW = [
-#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test/6\IMU-88-6-194.9837361431375 Pixel 6_sync.csv.npy",
-#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test/6\IMU-88-6-194.9837361431375 Pixel 6_sync.csv"]
+    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\9\IMU-812-9-189.79622112889115 Pixel 6_sync.csv.npy",
+    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\9\IMU-812-9-189.79622112889115 Pixel 6_sync.csv"]
 
-
-# PATH_PDR_RAW = [
-#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\\7\IMU-88-7-270.6518297687728 Pixel 6_sync.csv.npy",
-#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\\7\IMU-88-7-270.6518297687728 Pixel 6_sync.csv"]
-
-# PATH_PDR_RAW = [
-#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\8\IMU-88-8-189.88230883318997 Pixel 6_sync.csv.npy",
-#     "D:\pythonProjects\MagPdr_server\data\XingHu hall 8F test\position_test\8\IMU-88-8-189.88230883318997 Pixel 6_sync.csv"]
 
 def main():
+    # TODO 读取配置文件，将参数封装为配置对象，输入到各个thread对象中
+
     socket_output_queue = queue.Queue()
 
     pdr_input_queue = socket_output_queue
@@ -57,6 +66,8 @@ def main():
     mag_position_thread = MagPositionThread(mag_position_input_queue, mag_position_output_queue,
                                             mag_position_config_file)
     # 启动线程
+    start_time = time.time()
+
     fake_socket_thread.start()
     pdr_thread.start()
     mag_position_thread.start()
@@ -65,7 +76,7 @@ def main():
     final_xy = []
     final_xy.extend(mag_position_output_queue.get())
     xy_range = [0, MAP_SIZE_X * 1, 0, MAP_SIZE_Y * 1]
-    plt.figure(num=1, figsize=((xy_range[1] - xy_range[0]) / 5, (xy_range[3] - xy_range[2]) / 5))
+    plt.figure(num=1, figsize=((xy_range[1] - xy_range[0]) / 4, (xy_range[3] - xy_range[2]) / 4))
     while True:
         plt.xlim(xy_range[0], xy_range[1])
         plt.ylim(xy_range[2], xy_range[3])
@@ -79,7 +90,10 @@ def main():
         plt.ioff()
         plt.clf()
 
-    # 计算性能参数
+    end_time = time.time()
+
+    # 计算性能参数-------------------------------------------------------------------------------------------------------
+    print('\n')
     final_index = mag_position_output_queue.get()[:, np.newaxis]
 
     pdr_xy = np.load(PATH_PDR_RAW[0])[:, 0:2]
@@ -102,6 +116,13 @@ def main():
     PT.paint_xy_list([gt_xy, pdr_xy], ['GT', 'PDR'], xy_range, 'Contrast of Lines')
     PT.paint_xy_list([gt_xy, magPDR_xy], ['GT', 'MagPDR'], xy_range, "Contrast of Lines")
     PT.paint_xy_list([gt_xy, pdr_xy, magPDR_xy], ['GT', 'PDR', 'MagPDR'], xy_range, "Contrast of Lines")
+
+    total_distance = 0
+    for i in range(1, len(pdr_xy)):
+        total_distance += math.hypot(pdr_xy[i][0] - pdr_xy[i-1][0], pdr_xy[i][1] - pdr_xy[i-1][1])
+
+    print('\tTotal Distance: ', total_distance)
+    print('\tCost time: ', end_time - start_time)
 
     return
 

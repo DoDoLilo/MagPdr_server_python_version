@@ -29,8 +29,8 @@ class PdrThread(threading.Thread):
     def pdr_thread(self) -> None:
         window_buffer = []
         px, py = 0, 0
-        window_size = 200
-        slide_size = 10
+        window_size = self.window_size
+        slide_size = self.slide_size
         pdr_index = 0
 
         while True:
@@ -71,8 +71,9 @@ class PdrThread(threading.Thread):
                 py += vy * slide_time
 
                 # 将 [time, [px, py], mag_quat_list, pdr_index]放入out_data_queue中
+                # IMU data[ (pdr_i + 1)*10 - 5 : (pdr_i + 1)*10 + 5]
                 mag_quat_list = []
-                for line in window_buffer[0: slide_size]:
+                for line in window_buffer[5: slide_size + 5]:
                     mag_quat_list.append([line[7], line[8], line[9],
                                           line[10], line[11], line[12], line[13]])
 

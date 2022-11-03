@@ -139,7 +139,7 @@ def main():
                                                                       BLOCK_SIZE, STEP, MAX_ITERATION,
                                                                       TARGET_MEAN_LOSS,
                                                                       UPPER_LIMIT_OF_GAUSSNEWTEON,
-                                                                      MMT.SearchPattern.BREAKE_ADVANCED_BUT_USE_MIN_WHEN_FAILED)
+                                                                      MMT.SearchPattern.BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED)
         # 修改每个滑动窗口的实际生效坐标数量
         map_xy = map_xy[0: slide_number_list[i]]
         map_xy_list.append(map_xy)

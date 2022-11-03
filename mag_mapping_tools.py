@@ -27,8 +27,8 @@ def lowpass_emd(data_magnitude, cut_off):
 # q为四元数（game rotation vector)
 # 输入为序列，直接并行处理，不再是一个一个处理
 # 返回垂直磁强、水平磁强和总磁强
-def get_2d_mag_qiu(q, mag):
-    ori_R = Rotation.from_quat(q)
+def get_2d_mag_qiu(ori_quat, mag):
+    ori_R = Rotation.from_quat(ori_quat)
     glob_mag = np.einsum("tip,tp->ti", ori_R.as_matrix(), mag)
     mag_v = np.abs(glob_mag[:, 2:3])  # 垂直分量 = z轴结果
     mag_h = np.linalg.norm(glob_mag[:, 0:2], axis=1, keepdims=True)  # 水平分量 = x, y的合
@@ -821,7 +821,7 @@ def produce_transfer_candidates_ascending(original_transfer, config):
 class SearchPattern(Enum):
     FULL_DEEP = 0
     BREAKE_ADVANCED_AND_USE_LAST_WHEN_FAILED = 1
-    BREAKE_ADVANCED_BUT_USE_MIN_WHEN_FAILED = 2
+    BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED = 2
 
 
 # 输入：用于生成transfer_candidates：初始变换向量original_transfer，范围参数area_config，
@@ -834,12 +834,15 @@ def produce_transfer_candidates_and_search(start_transfer, area_config,
                                            match_seq,
                                            mag_map, block_size,
                                            step, max_iteration, target_loss, upper_limit_of_gaussnewteon,
-                                           search_pattern=SearchPattern.BREAKE_ADVANCED_BUT_USE_MIN_WHEN_FAILED):
+                                           search_pattern=SearchPattern.BREAKE_ADVANCED_AND_USE_LAST_WHEN_FAILED):
+    max_iteration += 1
+
     # 1.生成小范围的所有transfer_candidates（包括start_transfer，且范围由近到远）
     transfer_candidates = produce_transfer_candidates_ascending(start_transfer, area_config)
 
     # 2.遍历transfer_candidates进行高斯牛顿，结果添加到候选集candidates_loss_xy_tf
     candidates_loss_xy_tf = []
+
     for transfer in transfer_candidates:
         # 根据经验判断当前loss是否已经超出了高斯牛顿迭代的优化能力
         out_of_map, start_loss, not_use_map_xy, not_use_transfer = cal_new_transfer_and_last_loss_xy(
@@ -851,34 +854,64 @@ def produce_transfer_candidates_and_search(start_transfer, area_config,
         last_loss_xy_tf_num = None
         loss_list = []
         # 高斯牛顿迭代
-        for iter_num in range(0, max_iteration):
+        TEST_start_transfer = transfer.copy()
+        for iter_num in range(1, max_iteration):
             out_of_map, loss, map_xy, next_transfer = cal_new_transfer_and_last_loss_xy(
                 transfer, match_seq, mag_map, block_size, step)
             # 界内
             if not out_of_map:
                 loss_list.append(loss)
-                if search_pattern == SearchPattern.BREAKE_ADVANCED_BUT_USE_MIN_WHEN_FAILED:
+                if search_pattern == SearchPattern.BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED:
                     last_loss_xy_tf_num = [loss, map_xy, transfer, iter_num]
                 # 损失达标
                 if loss <= target_loss:
                     last_loss_xy_tf_num = [loss, map_xy, transfer, iter_num]
                     if search_pattern == SearchPattern.BREAKE_ADVANCED_AND_USE_LAST_WHEN_FAILED \
-                            or search_pattern == SearchPattern.BREAKE_ADVANCED_BUT_USE_MIN_WHEN_FAILED:
+                            or search_pattern == SearchPattern.BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED:
                         print("\t\t.search Succeed and break in advanced. Final loss = ", loss)
+
+                        # TEST
+                        # print("Start transfer = ",
+                        #                         #       [TEST_start_transfer[0], TEST_start_transfer[1], math.degrees(TEST_start_transfer[2])],
+                        #                         #       "Last transfer = ", [transfer[0], transfer[1], math.degrees(transfer[2])],
+                        #                         #       "Change = ", [(transfer[0] - TEST_start_transfer[0]),
+                        #                         #                     (transfer[1] - TEST_start_transfer[1]),
+                        #                         #                     math.degrees(transfer[2] - TEST_start_transfer[2])],
+                        #                         #       "Iter num = ", iter_num,
+                        #                         #       "Mean change = ", [(transfer[0] - TEST_start_transfer[0]) / iter_num,
+                        #                         #                          (transfer[1] - TEST_start_transfer[1]) / iter_num,
+                        #                         #                          math.degrees(transfer[2] - TEST_start_transfer[2]) / iter_num],
+                        #                         #       "Start loss = ", start_loss,
+                        #                         #       "Final loss = ", loss)
+
                         return transfer, map_xy
                 else:  # loss > target and not out of map, continue try next transfer.
                     transfer = next_transfer
             else:
                 break
 
+        # TEST
+        # print("Start transfer = ",
+        #       [TEST_start_transfer[0], TEST_start_transfer[1], math.degrees(TEST_start_transfer[2])],
+        #       "Last transfer = ", [transfer[0], transfer[1], math.degrees(transfer[2])],
+        #       "Change = ", [(transfer[0] - TEST_start_transfer[0]),
+        #                     (transfer[1] - TEST_start_transfer[1]),
+        #                     math.degrees(transfer[2] - TEST_start_transfer[2])],
+        #       "Iter num = ", iter_num,
+        #       "Mean change = ", [(transfer[0] - TEST_start_transfer[0]) / iter_num,
+        #                          (transfer[1] - TEST_start_transfer[1]) / iter_num,
+        #                          math.degrees(transfer[2] - TEST_start_transfer[2]) / iter_num],
+        #       "Start loss = ", start_loss,
+        #       "Final loss = ", loss)
+
         if last_loss_xy_tf_num is not None:
             candidates_loss_xy_tf.append(last_loss_xy_tf_num)
     # 如果选择了提前结束，但是到了这一步，表示寻找失败
     if search_pattern == SearchPattern.BREAKE_ADVANCED_AND_USE_LAST_WHEN_FAILED:
-        print("\t\t.Failed search, use last transfer.")
+        print("\t\t.Failed search, use last transfer. Final loss = ", loss)
         return start_transfer, transfer_axis_of_xy_seq(match_seq, start_transfer)
 
-    # if search_pattern == SearchPattern.FULL_DEEP or BREAKE_ADVANCED_AND_USE_MIN_WHEN_FAILED:
+    # if search_pattern == SearchPattern.FULL_DEEP or BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED:
     # 选出候选集中Loss最小的项，返回其transfer；
     # 若无候选项，则表示小范围寻找失败，返回original_transfer
     transfer = None
@@ -890,8 +923,9 @@ def produce_transfer_candidates_and_search(start_transfer, area_config,
             min_xy = c[1]
             transfer = c[2]
 
-    if transfer is None:
-        print("\t\t.Failed search, use last transfer.")
+    if transfer is None or (
+            search_pattern == SearchPattern.BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED and min_loss > target_loss * 2):
+        print("\t\t.Failed search, use last transfer.Final loss = ", min_loss)
         return start_transfer, transfer_axis_of_xy_seq(match_seq, start_transfer)
     else:
         print("\t\t.Found min, final loss = ", min_loss)
@@ -910,90 +944,122 @@ def produce_transfer_candidates_and_search(start_transfer, area_config,
 #      match_seq:待匹配的序列[N][x,y, mv, mh]
 def inital_full_deep_search(entrances, match_seq,
                             mag_map, block_size,
-                            step, max_iteration, upper_limit_of_gaussnewteon):
+                            step, max_iteration, upper_limit_of_gaussnewteon,
+                            reduce_dis=1):
     # 从多个入口中找出loss最小的transfer
+    match_seq_backup = match_seq.copy()
     min_loss = None
     min_transfer = None
-    min_map_xy = None
 
     # 构建0-360°，1.°粒度的transfer
     transfer_candidates = []
-    for angle in np.arange(0, 360, 1):
+    for angle in np.arange(0, 360, 0.5):
         transfer_candidates.append([0, 0, math.radians(angle)])
 
     start_x = match_seq[0][0]
     start_y = match_seq[0][1]
 
-    for entrance in entrances:
-        for transfer_candidate in transfer_candidates:
-            # 先将xy轨迹变换到entrance坐标，不修改原来的match_seq
-            # 构建transfer，先用transfer_candidate旋转start_x,y，然后将旋转后的点平移到entrance，该平移量+旋转角度=transfer
-            new_xy = transfer_axis_of_xy_seq([[start_x, start_y]], transfer_candidate)
-            transfer = np.array([entrance[0] - new_xy[0][0], entrance[1] - new_xy[0][1], transfer_candidate[2]])
+    while True:
+        for entrance in entrances:
+            for transfer_candidate in transfer_candidates:
+                # 先将xy轨迹变换到entrance坐标，不修改原来的match_seq
+                # 构建transfer，先用transfer_candidate旋转start_x,y，然后将旋转后的点平移到entrance，该平移量+旋转角度=transfer
+                new_xy = transfer_axis_of_xy_seq([[start_x, start_y]], transfer_candidate)
+                transfer = np.array([entrance[0] - new_xy[0][0], entrance[1] - new_xy[0][1], transfer_candidate[2]])
 
-            # 将该start_transfer应用到match_seq_copy，进行高斯牛顿迭代，找到最小loss
-            out_of_map, start_loss, not_use_map_xy, not_use_transfer = cal_new_transfer_and_last_loss_xy(
-                transfer, match_seq, mag_map, block_size, step)
+                # 将该start_transfer应用到match_seq_copy，进行高斯牛顿迭代，找到最小loss
+                out_of_map, start_loss, not_use_map_xy, not_use_transfer = cal_new_transfer_and_last_loss_xy(
+                    transfer, match_seq, mag_map, block_size, step)
 
-            if out_of_map or (min_loss is not None and start_loss - min_loss > upper_limit_of_gaussnewteon):
-                # 超过了高斯牛顿的迭代能力，不用继续迭代了，直接下一个candidate
-                continue
+                if out_of_map or (min_loss is not None and start_loss - min_loss > upper_limit_of_gaussnewteon):
+                    # 预估start_loss无法到达当前的min_loss，不用继续迭代了，直接下一个candidate
+                    continue
 
-            for iter_num in range(0, max_iteration):
-                out_of_map, loss, map_xy, next_transfer = cal_new_transfer_and_last_loss_xy(
-                    transfer, match_seq, mag_map, block_size, step)  # 该函数不会修改match_seq
-                if not out_of_map:
-                    transfer = next_transfer  # 继续迭代
-                    if min_loss is None or loss < min_loss:
-                        min_loss = loss
-                        min_transfer = transfer.copy()
-                        min_map_xy = map_xy.copy()
-                else:
-                    break
+                for iter_num in range(0, max_iteration):
+                    out_of_map, loss, map_xy, next_transfer = cal_new_transfer_and_last_loss_xy(
+                        transfer, match_seq, mag_map, block_size, step)  # 该函数不会修改match_seq
+                    if not out_of_map:
+                        transfer = next_transfer  # 继续迭代
+                        if min_loss is None or loss < min_loss:
+                            min_loss = loss
+                            min_transfer = transfer.copy()
+                    else:
+                        break
 
-    return min_transfer, min_map_xy, min_loss
+        if min_transfer is not None:
+            break
+        else:
+            # 将match_seq减掉末尾的1m后继续匹配，如果减到0米仍不行，则认为存在问题，返回全None
+            abondon_num = cal_dis_num_from_tail(match_seq, reduce_dis)
+            if abondon_num == len(match_seq):
+                return None, None, None
+            match_seq = match_seq[0:len(match_seq) - abondon_num, :]
+            print('初始匹配段减1米')
+            # del match_seq[len(match_seq) - abondon_num: len(match_seq)]
+
+    return min_transfer, transfer_axis_of_xy_seq(match_seq_backup, min_transfer), min_loss
 
 
-# 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]], pdr_index]变为[N][x,y, mv, mh]
+# 预处理pdr发送过来的数据.将pdr_data_buffer：
+# [N][time, [pdr_x, y], [10*[mag x, y, z, quat x, y, z, w]], pdr_index]变为[N][x,y, mv, mh, pdr_index]
 # 该函数不会修改pdr_data_buffer指向的内容
 # 下采样
-def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis):
-    # 构建match_seq[N][x,y, mv, mh]
-    match_seq_arr = np.empty(shape=[len(pdr_data_buffer), 5], dtype=float)
-    index = 0
+def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis, lowpass_level):
+    pdr_num = len(pdr_data_buffer)
+    if pdr_num == 0:
+        return np.empty(shape=[0, 0]), np.empty(shape=[0, 0])
 
-    # 计算分量
-    for pdr_data in pdr_data_buffer:
-        mag_quat_arr = np.array(pdr_data[2])
-        mvh_arr = get_2d_mag_qiu(mag_quat_arr[:, 3:7], mag_quat_arr[:, 0:3])
-        # 滤波
-        # mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], 2)
-        # mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], 2)
-        # mvh_arr = np.vstack((mv_filtered_emd, mh_filtered_emd)).transpose()
-        # 合并
-        match_seq_arr[index][0] = pdr_data[1][0]  # x
-        match_seq_arr[index][1] = pdr_data[1][1]  # y
-        match_seq_arr[index][2] = sum(mvh_arr[:, 0]) / len(mvh_arr)  # mean(mv)
-        match_seq_arr[index][3] = sum(mvh_arr[:, 1]) / len(mvh_arr)  # mean(mh)
-        match_seq_arr[index][4] = pdr_data[3]
-        index += 1
+    # 先将pdr_data_buffer中每行中的10个[mag,ori]合并成连续的一段，
+    mag_ori_per_num = len(pdr_data_buffer[0][2])
+    all_mag_ori_arr = np.empty(shape=[pdr_num * mag_ori_per_num, 7], dtype=float)
+    for pi in range(0, pdr_num):
+        start_i = pi * mag_ori_per_num
+        for pj in range(0, mag_ori_per_num):
+            cur_i = start_i + pj
+            for pk in range(0, 7):
+                all_mag_ori_arr[cur_i][pk] = pdr_data_buffer[pi][2][pj][pk]
 
-    # 下采样，过程中记录pdr原始下标
+    # 对这连续的一段求mv\mh后滤波
+    mvh_arr = get_2d_mag_qiu(all_mag_ori_arr[:, 3:7], all_mag_ori_arr[:, 0:3])
+    mv_filtered_emd = lowpass_emd(mvh_arr[:, 0], lowpass_level)
+    mh_filtered_emd = lowpass_emd(mvh_arr[:, 1], lowpass_level)
+    mvh_arr = np.vstack((mv_filtered_emd, mh_filtered_emd)).transpose()
+
+    # 滤波后对mv/mh每10个平均后还给对应pdr_xy，得到match_seq_arr[N][x,y, mv,mh, pdr_index]
+    match_seq_arr = np.empty(shape=[pdr_num, 5], dtype=float)
+    for pi in range(0, pdr_num):
+        match_seq_arr[pi][0] = pdr_data_buffer[pi][1][0]  # x
+        match_seq_arr[pi][1] = pdr_data_buffer[pi][1][1]  # y
+
+        start_i, end_i = pi * mag_ori_per_num, (pi + 1) * mag_ori_per_num
+        match_seq_arr[pi][2] = np.mean(mvh_arr[start_i:end_i, 0])  # mean(mv)
+        match_seq_arr[pi][3] = np.mean(mvh_arr[start_i:end_i, 1])  # mean(mh)
+
+        match_seq_arr[pi][4] = pdr_data_buffer[pi][3]  # pdr_index
+
+    # 下采样，过程中记录i_mid对应的pdr原始下标
     match_seq_list = []
     pdr_index_list = []
-    temp_dis = 0
-    last_index = 0
+    dis_sum_temp = 0
+    i_start = 0
+    i_mid = i_start
+    mid_down_sip_dis = down_sip_dis / 2
+
     for i in range(1, len(match_seq_arr)):
-        temp_dis += math.hypot(match_seq_arr[i][0] - match_seq_arr[i - 1][0],
-                               match_seq_arr[i][1] - match_seq_arr[i - 1][1])
-        if temp_dis >= down_sip_dis or i == len(match_seq_arr) - 1:
-            temp_dis = 0
-            mid_index = int(last_index + (i - last_index) / 2)
-            match_seq_list.append([match_seq_arr[mid_index][0], match_seq_arr[mid_index][1],
-                                   np.mean(match_seq_arr[last_index:i, 2]),
-                                   np.mean(match_seq_arr[last_index:i, 3])])
-            pdr_index_list.append(match_seq_arr[mid_index][4])
-            last_index = i
+        dis_sum_temp += math.hypot(match_seq_arr[i][0] - match_seq_arr[i - 1][0],
+                                   match_seq_arr[i][1] - match_seq_arr[i - 1][1])
+
+        if dis_sum_temp >= down_sip_dis or i == len(match_seq_arr) - 1:
+            match_seq_list.append([match_seq_arr[i_mid][0], match_seq_arr[i_mid][1],
+                                   np.mean(match_seq_arr[i_start:i, 2]),
+                                   np.mean(match_seq_arr[i_start:i, 3])])
+            pdr_index_list.append(match_seq_arr[i_mid][4])
+            dis_sum_temp = 0
+            i_start = i
+            i_mid = i_start
+        else:
+            if dis_sum_temp >= mid_down_sip_dis:
+                i_mid = i
 
     return np.array(match_seq_list), np.array(pdr_index_list)
 
@@ -1001,6 +1067,40 @@ def change_pdr_thread_data_to_match_seq(pdr_data_buffer, down_sip_dis):
 # 均值移除
 def remove_mean(magSerial):
     return magSerial - np.mean(magSerial)
+
+
+# 计算某个距离的坐标点的数量，如果目标距离小于等于0，则返回0，如果距离大于最大，则返回len
+# xy = [N][x, y]
+# 返回的结果可直接用于del [0 : ans]
+def cal_dis_num_from_head(xy, target_dis):
+    if target_dis <= 0 or len(xy) < 2:
+        return 0
+
+    dis = 0
+    found = False
+    for i in range(1, len(xy)):
+        dis += math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1])
+        if dis >= target_dis:
+            found = True
+            break
+
+    return i if found else len(xy)
+
+
+# 返回的结果可直接用于 del [len - ans : len]
+def cal_dis_num_from_tail(xy, target_dis):
+    if target_dis <= 0 or len(xy) < 2:
+        return 0
+
+    dis = 0
+    found = False
+    for i in range(len(xy) - 1, 0, -1):
+        dis += math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1])
+        if dis >= target_dis:
+            found = True
+            break
+
+    return len(xy) - i if found else len(xy)
 
 
 # -----------计算磁场特征的函数--------------------------------------------------------------------------------------
