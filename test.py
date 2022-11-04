@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import numpy as np
 # import queue
 # from server_threads import socket_thread
@@ -11,10 +13,7 @@ import numpy as np
 #     cur_data = socket_output_queue.get()
 #     print(cur_data)
 
-for i in range(0, 10):
-    x = 1
-
-print(i)
-
-
-
+from mag_and_other_tools.config_tools import SystemConfigurations
+config_json_file = './server_threads/mag_position_config.json'
+system_configurations = SystemConfigurations(config_json_file)
+print(system_configurations.init_succeed)

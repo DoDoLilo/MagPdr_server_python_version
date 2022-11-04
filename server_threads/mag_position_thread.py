@@ -1,36 +1,8 @@
 import threading
 from enum import Enum
 import math
-import queue
 import numpy as np
-import mag_mapping_tools as MMT
-
-# -----------地图系统参数------------------
-BLOCK_SIZE = 0.3  # 地图块大小（m），必须和使用的指纹库文件建库时的块大小一致
-EMD_FILTER_LEVEL = 3  # 低通滤波的程度，值越大滤波越强。整型，无单位。
-INITAIL_BUFFER_DIS = 5  # 初始态匹配时，缓存池大小（m） > BUFFER_DIS!
-BUFFER_DIS = 4  # 稳定态匹配时，缓冲池大小（m）
-DOWN_SIP_DIS = BLOCK_SIZE  # 下采样粒度（m），应为块大小的整数倍？（下采样越小则相同长度序列的匹配点越多，匹配难度越大！）
-# --------迭代搜索参数----------------------
-SLIDE_STEP = 8  # 滑动窗口步长
-SLIDE_BLOCK_SIZE = 0.25  # 滑动窗口最小粒度（m），>=DOWN_SIP_DIS！
-MAX_ITERATION = 90  # 高斯牛顿最大迭代次数
-TARGET_MEAN_LOSS = 10  # 目标损失
-STEP = 1 / 50  # 迭代步长，牛顿高斯迭代是局部最优，步长要小
-UPPER_LIMIT_OF_GAUSSNEWTEON = 1 * MAX_ITERATION  # 当前参数下高斯牛顿迭代MAX_ITERATION的能降低的loss上限
-# ---------其他参数----------------------------
-EMD_FILTER_LEVEL = 3
-PDR_IMU_ALIGN_SIZE = 10  # 1个PDR坐标对应的imu\iLocator数据个数，iLocator与imu已对齐
-TRANSFERS_PRODUCE_CONFIG = [[0.25, 0.25, math.radians(1.5)],  # 枚举transfers的参数，[0] = [△x, △y(米), △angle(弧度)]
-                            [6, 6, 8]]  # [1] = [枚举的正负个数]
-ORIGINAL_START_TRANSFER = [0., 0., math.radians(0.)]  # 初始Transfer[△x, △y(米), △angle(弧度)]：先绕原坐标原点逆时针旋转，然后再平移
-# ---------数据文件路径---------------------------
-# 地磁指纹库文件，[0]为mv.csv，[1]为mh.csv
-PATH_MAG_MAP = [
-    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\mag_map\map_F1_2_B_0.3_deleted\mv_qiu_2d.csv",
-    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\mag_map\map_F1_2_B_0.3_deleted\mh_qiu_2d.csv"
-]
-
+import mag_and_other_tools.mag_mapping_tools as MMT
 
 # 地磁定位线程，状态枚举类
 class MagPositionState(Enum):
@@ -43,25 +15,44 @@ class MagPositionState(Enum):
 # 初始态：清空历史数据，当容器中的数据量达到initial_dis则调用初始遍历算法
 # 运行态：基于之前的transfer进行计算
 class MagPositionThread(threading.Thread):
-    def __init__(self, in_data_queue, out_data_queue, config_file_path):
+    def __init__(self, in_data_queue, out_data_queue, configurations):
         super(MagPositionThread, self).__init__()
         # 初始化各种参数
         self.state = MagPositionState.STOP
         self.in_data_queue = in_data_queue
         self.out_data_queue = out_data_queue
-        self.config_file_path = config_file_path
-        # TODO 从配置文件中读取各种参数，并赋予成员变量
-        self.coordinate_offset = [0, 0]  # move_x,move_y
-        self.entrance_lsit = [[5, 5]]
 
-        mag_map = MMT.rebuild_map_from_mvh_files(PATH_MAG_MAP)
+        # TODO 从配置文件中读取各种参数，并赋予成员变量
+        # -----------地图系统参数------------------
+        self.BLOCK_SIZE = configurations.BlockSize  # 地图块大小（m），必须和使用的指纹库文件建库时的块大小一致
+        self.INITAIL_BUFFER_DIS = configurations.InitailBufferDis  # 初始态匹配时，缓存池大小（m） > BUFFER_DIS!
+        self.BUFFER_DIS = configurations.BufferDis  # 稳定态匹配时，缓冲池大小（m）
+        self.DOWN_SIP_DIS = configurations.DownSipDis  # 下采样粒度（m），应为块大小的整数倍？（下采样越小则相同长度序列的匹配点越多，匹配难度越大！）
+        # --------迭代搜索参数----------------------
+        self.SLIDE_STEP = configurations. SlideStep # 滑动窗口步长
+        self.SLIDE_BLOCK_SIZE = configurations.SlideBlockSize  # 滑动窗口最小粒度（m），>=DOWN_SIP_DIS！
+        self.MAX_ITERATION = configurations.MaxIteration  # 高斯牛顿最大迭代次数
+        self.TARGET_MEAN_LOSS = configurations.TargetMeanLoss  # 目标损失
+        self.ITER_STEP = configurations.IterStep  # 迭代步长，牛顿高斯迭代是局部最优，步长要小
+        self.UPPER_LIMIT_OF_GAUSSNEWTEON = configurations.UpperLimitOfGaussNewteon # 当前参数下高斯牛顿迭代MAX_ITERATION的能降低的loss上限
+        # ---------其他参数----------------------------
+        self.EMD_FILTER_LEVEL = configurations.EmdFilterLevel  # 低通滤波的程度，值越大滤波越强。整型，无单位。
+        self.PDR_IMU_ALIGN_SIZE = configurations.PdrImuAlignSize  # 1个PDR坐标对应的imu\iLocator数据个数，iLocator与imu已对齐
+        self.TRANSFERS_PRODUCE_CONFIG = configurations.TransfersProduceConfig  # 枚举transfers的参数，[0] = [△x, △y(米), △angle(弧度)], [1] = [枚举的正负个数]
+        # ---------数据文件路径---------------------------
+        # 地磁指纹库文件，[0]为mv.csv，[1]为mh.csv
+        self.MAG_MAP_FILES = configurations.MagMapFiles
+        self.COORDINATE_OFFSET = configurations.CoordinateOffset  # move_x,move_y
+        self.ENTRANCE_LIST = configurations.EntranceList
+
+        mag_map = MMT.rebuild_map_from_mvh_files(self.MAG_MAP_FILES)
         if mag_map is None:
             print("地磁指纹文件错误，初始化失败！")
             return
         self.mag_map = mag_map
 
     def run(self) -> None:
-        self.mag_position_thread(self.in_data_queue, self.out_data_queue, self.coordinate_offset, self.entrance_lsit)
+        self.mag_position_thread(self.in_data_queue, self.out_data_queue, self.COORDINATE_OFFSET, self.ENTRANCE_LIST)
 
     # 输入：容器引用、地图坐标系参数（左下角、右上角坐标）、地图所有入口的坐标
     #    coordinate_offset，将entrance坐标平移到指纹库坐标系0-map_size_x, 0-map_size_y的move_x,move_y
@@ -69,11 +60,11 @@ class MagPositionThread(threading.Thread):
     # 往out_data_list中放入[time, [mag_position_x,y]]
     def mag_position_thread(self, in_data_queue, out_data_queue, coordinate_offset, entrance_list) -> None:
         transfer = None
-        first_window_start_distance = INITAIL_BUFFER_DIS + SLIDE_BLOCK_SIZE * SLIDE_STEP - BUFFER_DIS  # 第一个滑动窗口的起始距离
+        first_window_start_distance = self.INITAIL_BUFFER_DIS + self.SLIDE_BLOCK_SIZE * self.SLIDE_STEP - self.BUFFER_DIS  # 第一个滑动窗口的起始距离
         window_buffer = []
         window_buffer_dis = 0
         pdr_index_list = []
-        slide_distance = SLIDE_STEP * SLIDE_BLOCK_SIZE
+        slide_distance = self.SLIDE_STEP * self.SLIDE_BLOCK_SIZE
 
         while True:
             # 根据不同的状态对该数据做对应的处理
@@ -94,7 +85,7 @@ class MagPositionThread(threading.Thread):
                 distance = 0
 
                 # 从数据输入流中取地足够初始遍历的数据。注意如果过程中遇到-1，则回到STOP状态
-                while distance < INITAIL_BUFFER_DIS:
+                while distance < self.INITAIL_BUFFER_DIS:
                     cur_data = in_data_queue.get()
                     if isinstance(cur_data, str) and cur_data == 'END':
                         self.state = MagPositionState.STOP
@@ -121,15 +112,15 @@ class MagPositionThread(threading.Thread):
 
                 # 初始化搜索成功，状态转移至稳定搜索阶段，*而pdr坐标，并不需要使用move xy!都会包含在transfer里面
                 # 预处理pdr发送过来的数据，将[N][time, [pdr_x, y], [10*[mag x, y, z]]]变为[N][x,y, mv, mh]并且下采样
-                match_seq, pdr_index_arr = MMT.change_pdr_thread_data_to_match_seq(inital_data_buffer, DOWN_SIP_DIS,
-                                                                                   EMD_FILTER_LEVEL)
+                match_seq, pdr_index_arr = MMT.change_pdr_thread_data_to_match_seq(inital_data_buffer, self.DOWN_SIP_DIS,
+                                                                                   self.EMD_FILTER_LEVEL)
                 pdr_index_list.extend(pdr_index_arr)
 
                 # 调用初始化固定区域搜索
                 inital_transfer, inital_map_xy, inital_loss = MMT.inital_full_deep_search(
                     entrance_list, match_seq,
-                    self.mag_map, BLOCK_SIZE,
-                    STEP, MAX_ITERATION, UPPER_LIMIT_OF_GAUSSNEWTEON
+                    self.mag_map, self.BLOCK_SIZE,
+                    self.ITER_STEP, self.MAX_ITERATION, self.UPPER_LIMIT_OF_GAUSSNEWTEON
                 )
 
                 if inital_transfer is None:
@@ -162,11 +153,11 @@ class MagPositionThread(threading.Thread):
                     window_buffer.append(cur_data)
                     window_buffer_dis += math.hypot(cur_data[1][0] - last_data[1][0], cur_data[1][1] - last_data[1][1])
 
-                    if window_buffer_dis >= BUFFER_DIS:
+                    if window_buffer_dis >= self.BUFFER_DIS:
                         # 填满一个窗口，调用一次匹配算法，并将结果只应用到新加的那段坐标
                         print("\n")
-                        match_seq, pdr_index_arr = MMT.change_pdr_thread_data_to_match_seq(window_buffer, DOWN_SIP_DIS,
-                                                                                           EMD_FILTER_LEVEL)
+                        match_seq, pdr_index_arr = MMT.change_pdr_thread_data_to_match_seq(window_buffer, self.DOWN_SIP_DIS,
+                                                                                           self.EMD_FILTER_LEVEL)
                         # 只往pdr_index_list放入比末尾大的新下标
                         max_index = pdr_index_list[len(pdr_index_list) - 1]
                         new_xy_num = 0
@@ -178,11 +169,11 @@ class MagPositionThread(threading.Thread):
 
                         start_transfer = transfer.copy()
                         transfer, map_xy = MMT.produce_transfer_candidates_and_search(start_transfer,
-                                                                                      TRANSFERS_PRODUCE_CONFIG,
+                                                                                      self.TRANSFERS_PRODUCE_CONFIG,
                                                                                       match_seq, self.mag_map,
-                                                                                      BLOCK_SIZE, STEP, MAX_ITERATION,
-                                                                                      TARGET_MEAN_LOSS,
-                                                                                      UPPER_LIMIT_OF_GAUSSNEWTEON,
+                                                                                      self.BLOCK_SIZE, self.ITER_STEP, self.MAX_ITERATION,
+                                                                                      self.TARGET_MEAN_LOSS,
+                                                                                      self.UPPER_LIMIT_OF_GAUSSNEWTEON,
                                                                                       MMT.SearchPattern.BREAKE_ADVANCED_AND_USE_SECOND_LOSS_WHEN_FAILED)
 
                         print("transfer = ", transfer)

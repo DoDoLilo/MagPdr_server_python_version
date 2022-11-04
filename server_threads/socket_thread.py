@@ -1,15 +1,16 @@
 import threading
 import socket
+from mag_and_other_tools.config_tools import SystemConfigurations
 
 
 # socket server 守护线程
 # 往out_data_list中放入：time, acc, gyro, mag, ori
 # TODO 如何解决 连上客户端后，客户端与网络断开(客户端自己会知晓，然后不断重复连接)，但本服务端却无法知晓，该socket连接仍占用着
 class SocketServerThread(threading.Thread):
-    def __init__(self, out_data_queue, server_port=2212):
+    def __init__(self, out_data_queue, configurations):
         super(SocketServerThread, self).__init__()
         self.out_data_queue = out_data_queue
-        self.server_port = server_port
+        self.server_port = configurations.ServerPort
         self.user_phone = None
 
     def run(self) -> None:

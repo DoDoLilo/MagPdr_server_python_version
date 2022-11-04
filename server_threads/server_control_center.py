@@ -2,29 +2,22 @@
 # 声明公共数据容器，
 # DI到 socket线程、pdr线程、magPdr线程，三个“守护线程”
 # 并启动它们
-from server_threads.fake_pdr_thread import FakePdrThread
+from test_fake_threads.fake_pdr_thread import FakePdrThread
 from server_threads.mag_position_thread import MagPositionThread
-from server_threads.fake_socket_thread import FakeSocketThread
+from test_fake_threads.fake_socket_thread import FakeSocketThread
 from server_threads.pdr_thread import PdrThread
+from mag_and_other_tools.config_tools import SystemConfigurations
 import queue
 import matplotlib.pyplot as plt
 import numpy as np
-import mag_mapping_tools as MMT
+import mag_and_other_tools.mag_mapping_tools as MMT
 import test_tools as TEST
-import paint_tools as PT
+import mag_and_other_tools.paint_tools as PT
 import os
 import math
 import time
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-
-# 地图坐标系大小 0-MAP_SIZE_X ，0-MAP_SIZE_Y（m）
-MAP_SIZE_X = 35.0
-MAP_SIZE_Y = 20.0
-MOVE_X = 5.0
-MOVE_Y = 5.0
-
-PDR_MODEL_FILE = "../pdr/ronin.pt"
 
 # PATH_PDR_RAW = [
 #     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\5\IMU-812-5-277.2496012617084 Pixel 6_sync.csv.npy",
@@ -34,21 +27,34 @@ PDR_MODEL_FILE = "../pdr/ronin.pt"
 #     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\6\IMU-812-6-269.09426660025395 Pixel 6_sync.csv.npy",
 #     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\6\IMU-812-6-269.09426660025395 Pixel 6_sync.csv"]
 
-# PATH_PDR_RAW = [
-#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\7\IMU-812-7-195.4948665194862 Pixel 6_sync.csv.npy",
-#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\7\IMU-812-7-195.4948665194862 Pixel 6_sync.csv"]
+PATH_PDR_RAW = [
+    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\7\IMU-812-7-195.4948665194862 Pixel 6_sync.csv.npy",
+    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\7\IMU-812-7-195.4948665194862 Pixel 6_sync.csv"]
 
 # PATH_PDR_RAW = [
 #     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\8\IMU-812-8-193.38120983931242 Pixel 6_sync.csv.npy",
 #     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\\8\IMU-812-8-193.38120983931242 Pixel 6_sync.csv"]
 
-PATH_PDR_RAW = [
-    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\9\IMU-812-9-189.79622112889115 Pixel 6_sync.csv.npy",
-    "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\9\IMU-812-9-189.79622112889115 Pixel 6_sync.csv"]
+# PATH_PDR_RAW = [
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\9\IMU-812-9-189.79622112889115 Pixel 6_sync.csv.npy",
+#     "D:\pythonProjects\MagPdr_server\data\InfCenter server room\position_test\9\IMU-812-9-189.79622112889115 Pixel 6_sync.csv"]
 
 
 def main():
-    # TODO 读取配置文件，将参数封装为配置对象，输入到各个thread对象中
+    # 读取配置文件，将参数封装为配置对象，输入到各个thread对象中
+    config_json_file = "./mag_position_config.json"
+    configurations = SystemConfigurations(config_json_file)
+
+    # 如果参数读取失败，直接不启动服务器，
+    if not configurations.init_succeed:
+        print("读取配置文件初始化参数失败！停止启动服务器程序，请检查")
+        # TODO 所有的print要改成打包后的软件使用时可以显示的
+        return
+
+    MAP_SIZE_X = configurations.MapSizeX
+    MAP_SIZE_Y = configurations.MapSizeY
+    MOVE_X = configurations.MoveX
+    MOVE_Y = configurations.MoveY
 
     socket_output_queue = queue.Queue()
 
@@ -57,14 +63,13 @@ def main():
 
     mag_position_input_queue = pdr_output_queue
     mag_position_output_queue = queue.Queue()
-    mag_position_config_file = "D:\pythonProjects\MagPdr_server\server_threads\mag_position_config.json"
 
     # 定义线程
     fake_socket_thread = FakeSocketThread(PATH_PDR_RAW[1], socket_output_queue)
-    pdr_thread = PdrThread(pdr_input_queue, pdr_output_queue, PDR_MODEL_FILE)
+    pdr_thread = PdrThread(pdr_input_queue, pdr_output_queue, configurations)
     # pdr_thread = FakePdrThread(pdr_input_queue, pdr_output_queue, PATH_PDR_RAW)
     mag_position_thread = MagPositionThread(mag_position_input_queue, mag_position_output_queue,
-                                            mag_position_config_file)
+                                            configurations)
     # 启动线程
     start_time = time.time()
 
@@ -119,7 +124,7 @@ def main():
 
     total_distance = 0
     for i in range(1, len(pdr_xy)):
-        total_distance += math.hypot(pdr_xy[i][0] - pdr_xy[i-1][0], pdr_xy[i][1] - pdr_xy[i-1][1])
+        total_distance += math.hypot(pdr_xy[i][0] - pdr_xy[i - 1][0], pdr_xy[i][1] - pdr_xy[i - 1][1])
 
     print('\tTotal Distance: ', total_distance)
     print('\tCost time: ', end_time - start_time)

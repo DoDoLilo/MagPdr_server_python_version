@@ -1,8 +1,8 @@
 import numpy as np
-import mag_mapping_tools as MMT
+import mag_and_other_tools.mag_mapping_tools as MMT
 import time
 import threading
-import paint_tools as PT
+import mag_and_other_tools.paint_tools as PT
 
 PDR_IMU_ALIGN_SIZE = 10  # 1个PDR坐标对应的imu数据个数
 

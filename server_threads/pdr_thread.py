@@ -10,14 +10,17 @@ class PdrState(enum.Enum):
 
 class PdrThread(threading.Thread):
     # in_data_queue 每个单位为
-    def __init__(self, in_data_queue, out_data_queue, pdr_model_path):
+    def __init__(self, in_data_queue, out_data_queue, configurations):
         super(PdrThread, self).__init__()
         self.in_data_queue = in_data_queue
         self.out_data_queue = out_data_queue
-        self.window_size = 200
-        self.slide_size = 10
+
+        self.WINDOW_SIZE = configurations.PdrWindowSize
+        self.SLIDE_SIZE = configurations.PdrSlideSize
+        self.PDR_MODEL_PATH = configurations.PdrModelFile
+
         self.state = PdrState.STOP
-        self.pdr_model_path = pdr_model_path
+
 
     def run(self) -> None:
         self.pdr_thread()
@@ -29,8 +32,8 @@ class PdrThread(threading.Thread):
     def pdr_thread(self) -> None:
         window_buffer = []
         px, py = 0, 0
-        window_size = self.window_size
-        slide_size = self.slide_size
+        window_size = self.WINDOW_SIZE
+        slide_size = self.SLIDE_SIZE
         pdr_index = 0
 
         while True:
@@ -64,7 +67,7 @@ class PdrThread(threading.Thread):
                                       line[4], line[5], line[6],
                                       line[10], line[11], line[12], line[13]])
 
-                v_xy = PDR.workpart(pdr_input, self.pdr_model_path)
+                v_xy = PDR.workpart(pdr_input, self.PDR_MODEL_PATH)
                 vx, vy = v_xy[0][0], v_xy[0][1]
                 slide_time = (window_buffer[slide_size][0] - window_buffer[0][0]) / 1000
                 px += vx * slide_time

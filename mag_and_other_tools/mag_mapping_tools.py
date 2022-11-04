@@ -3,7 +3,7 @@ from enum import Enum
 import numpy as np
 from PyEMD import EMD
 from scipy.spatial.transform import Rotation
-import paint_tools as PT
+import mag_and_other_tools.paint_tools as PT
 import queue
 
 

@@ -1,6 +1,6 @@
 import threading
 import time
-import paint_tools as PT
+import mag_and_other_tools.paint_tools as PT
 import numpy as np
 
 
