@@ -1,4 +1,4 @@
-import mag_mapping_tools as MMT
+import mag_and_other_tools.mag_mapping_tools as MMT
 import numpy as np
 import os
 

@@ -946,6 +946,7 @@ def inital_full_deep_search(entrances, match_seq,
                             mag_map, block_size,
                             step, max_iteration, upper_limit_of_gaussnewteon,
                             reduce_dis=1):
+    max_iteration += 1
     # 从多个入口中找出loss最小的transfer
     match_seq_backup = match_seq.copy()
     min_loss = None
@@ -975,7 +976,7 @@ def inital_full_deep_search(entrances, match_seq,
                     # 预估start_loss无法到达当前的min_loss，不用继续迭代了，直接下一个candidate
                     continue
 
-                for iter_num in range(0, max_iteration):
+                for iter_num in range(1, max_iteration):
                     out_of_map, loss, map_xy, next_transfer = cal_new_transfer_and_last_loss_xy(
                         transfer, match_seq, mag_map, block_size, step)  # 该函数不会修改match_seq
                     if not out_of_map:

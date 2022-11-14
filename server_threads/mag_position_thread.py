@@ -21,15 +21,16 @@ class MagPositionThread(threading.Thread):
         self.state = MagPositionState.STOP
         self.in_data_queue = in_data_queue
         self.out_data_queue = out_data_queue
+        self.out_data_sock_file = configurations.LocalSocketMagposition.makefile(mode='w')
 
-        # TODO 从配置文件中读取各种参数，并赋予成员变量
+        # 从配置文件中读取各种参数，并赋予成员变量
         # -----------地图系统参数------------------
         self.BLOCK_SIZE = configurations.BlockSize  # 地图块大小（m），必须和使用的指纹库文件建库时的块大小一致
         self.INITAIL_BUFFER_DIS = configurations.InitailBufferDis  # 初始态匹配时，缓存池大小（m） > BUFFER_DIS!
         self.BUFFER_DIS = configurations.BufferDis  # 稳定态匹配时，缓冲池大小（m）
         self.DOWN_SIP_DIS = configurations.DownSipDis  # 下采样粒度（m），应为块大小的整数倍？（下采样越小则相同长度序列的匹配点越多，匹配难度越大！）
         # --------迭代搜索参数----------------------
-        self.SLIDE_STEP = configurations. SlideStep # 滑动窗口步长
+        self.SLIDE_STEP = configurations. SlideStep  # 滑动窗口步长
         self.SLIDE_BLOCK_SIZE = configurations.SlideBlockSize  # 滑动窗口最小粒度（m），>=DOWN_SIP_DIS！
         self.MAX_ITERATION = configurations.MaxIteration  # 高斯牛顿最大迭代次数
         self.TARGET_MEAN_LOSS = configurations.TargetMeanLoss  # 目标损失
@@ -131,6 +132,7 @@ class MagPositionThread(threading.Thread):
 
                 # 将结果放入输出队列中，注意外部如果不及时取走结果，这一步可能（队列满）会阻塞，导致后续代码全部停止！
                 out_data_queue.put(inital_map_xy)
+                self.write_data_to_sock_file(inital_map_xy)
                 transfer = inital_transfer.copy()
                 print("Initial Transfer = ", transfer)
                 print("Initial Loss = ", inital_loss)
@@ -147,6 +149,7 @@ class MagPositionThread(threading.Thread):
                         self.state = MagPositionState.STOP
                         out_data_queue.put('END')  # 放入-1供外部知晓停止
                         out_data_queue.put(np.array(pdr_index_list))
+                        self.write_data_to_sock_file('END')
                         break
 
                     last_data = window_buffer[len(window_buffer) - 1]
@@ -180,7 +183,9 @@ class MagPositionThread(threading.Thread):
                         print("window points number = ", len(window_buffer))
                         print("window buffer dis = ", window_buffer_dis)
                         # 只取出map_xy中slide_distance长度的结果，放入到out_data_queue中
-                        out_data_queue.put(map_xy[len(map_xy) - new_xy_num: len(map_xy), :])
+                        new_xy = map_xy[len(map_xy) - new_xy_num: len(map_xy), :]
+                        out_data_queue.put(new_xy)
+                        self.write_data_to_sock_file(new_xy)
 
                         # 从window_buffer中舍弃开头slide_distance长度的数据
                         abandon_index = len(window_buffer)
@@ -196,3 +201,19 @@ class MagPositionThread(threading.Thread):
                         window_buffer_dis -= abandon_dis
 
                 continue
+
+    # 将数据（字符串or xy_list）转为对应形式写到socket文件流中
+    def write_data_to_sock_file(self, data):
+        if data is None:
+            return
+        if isinstance(data, list) or isinstance(data, np.ndarray):
+            # 要发送的是x,y坐标数据
+            for xy in data:
+                self.out_data_sock_file.write(str(xy[0]) + ',' + str(xy[1]) + '\n')
+            self.out_data_sock_file.flush()
+        if isinstance(data, str):
+            # 要发送的是字符数据
+            self.out_data_sock_file.write(data + '\n')
+            self.out_data_sock_file.flush()
+        else:
+            return

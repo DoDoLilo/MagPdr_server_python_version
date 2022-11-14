@@ -1,6 +1,5 @@
 import os
-
-import mag_mapping_tools as MMT
+import mag_and_other_tools.mag_mapping_tools as MMT
 import numpy as np
 
 # 坐标系位移（平移，单位：米）

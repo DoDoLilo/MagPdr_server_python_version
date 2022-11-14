@@ -25,7 +25,7 @@ class FakePdrThread(threading.Thread):
     # TODO 当socket thread端接收到'END'并发送标记过来 or imu数据的两次time间隔超过阈值，
     #  则pdr thread往out data queue中置入[-1, [],[]]以通知mag thread
 
-    # TODO 测试发送的数据，和文件中的内容是否一致！
+    # 测试发送的数据，和文件中的内容是否一致！
     def pdr_thread(self, in_data_queue, out_data_queue) -> None:
         # 由PDR线程实现对齐，目前先用文件载入进行
         # 载入数据

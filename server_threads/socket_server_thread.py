@@ -45,7 +45,8 @@ class SocketServerThread(threading.Thread):
                     break
                 if is_first_line:
                     is_first_line = False
-                    self.user_phone = line
+                    self.user_phone = int(line)
+                    print("user phone = ", self.user_phone)
                     continue
 
                 str_list = line.split(',')

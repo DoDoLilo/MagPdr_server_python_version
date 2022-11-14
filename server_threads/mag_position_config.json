@@ -9,6 +9,7 @@
   "PdrModelFile": "../pdr/ronin.pt",
   "PdrWindowSize": 200, //神经网络pdr窗口大小
   "PdrSlideSize": 10, //神经网络pdr滑动距离
+   //"PdrImuAlignSize"= PdrSlideSize,  1个PDR坐标对应的imu\iLocator数据个数，iLocator与imu已对齐
 
   //---------地图系统参数------------------
   "BlockSize": 0.3, //地图块大小（m），必须和使用的指纹库文件建库时的块大小一致
@@ -24,7 +25,6 @@
   "UpperLimitOfGaussNewteon": 1,  //当前参数下高斯牛顿迭代MAX_ITERATION的能降低的loss上限 = UpperLimitOfGaussNewteon * MaxIteration
   //---------其他参数------------------------
   "EmdFilterLevel": 3,  //低通滤波的程度，值越大滤波越强。整型，无单位。
-  "PdrImuAlignSize": 10,  //1个PDR坐标对应的imu\iLocator数据个数，iLocator与imu已对齐
   "TransfersProduceConfig": [[0.25, 0.25, 1.5], //枚举transfers的参数，[0] = [△x, △y(米), △angle(角度) 读取时要转为弧度]
                              [6, 6, 8]],  //[1] = [枚举的正负个数]
   "MagMapFiles":  [ //地磁指纹库文件，[0]为mv.csv，[1]为mh.csv
@@ -35,5 +35,7 @@
   "CoordinateOffset": [0, 0],  //将机房入口坐标映射到0-map_size_x, 0-map_size_y的坐标系下的move_x, move_y
 
   //-------socket服务参数-------------------
-  "ServerPort": 2212
+  "ServerPort": 2212,  //作为socket服务器接收APP发送的数据的端口
+  "LocalPortMagposition": 10001,  //使用socket在本地进程之间通信，地磁定位结果通信端口
+  "LocalPortPdr": 10002   //使用socket在本地进程之间通信，根据pdr判断用户是否长时间处于原地，通信端口
 }

@@ -1,6 +1,7 @@
 import threading
 import enum
 import pdr.pdr_vxy as PDR
+import math
 
 
 class PdrState(enum.Enum):
@@ -12,8 +13,11 @@ class PdrThread(threading.Thread):
     # in_data_queue 每个单位为
     def __init__(self, in_data_queue, out_data_queue, configurations):
         super(PdrThread, self).__init__()
+        self.WALKING_SPEED = 0.3  # 速度低于WALKING_SPEED（m/s）就认为是静止了
+
         self.in_data_queue = in_data_queue
         self.out_data_queue = out_data_queue
+        self.out_data_sock_file = configurations.LocalSocketPdr.makefile(mode='w')
 
         self.WINDOW_SIZE = configurations.PdrWindowSize
         self.SLIDE_SIZE = configurations.PdrSlideSize
@@ -66,12 +70,17 @@ class PdrThread(threading.Thread):
                     pdr_input.append([line[1], line[2], line[3],
                                       line[4], line[5], line[6],
                                       line[10], line[11], line[12], line[13]])
-
+                # 输入拷贝的窗口数据到pdr模型中估计用户速度
                 v_xy = PDR.workpart(pdr_input, self.PDR_MODEL_PATH)
                 vx, vy = v_xy[0][0], v_xy[0][1]
                 slide_time = (window_buffer[slide_size][0] - window_buffer[0][0]) / 1000
                 px += vx * slide_time
                 py += vy * slide_time
+
+                # 判断是否停止走路
+                if self.is_stop_move(vx, vy):
+                    self.out_data_sock_file.write('STANDING' + '\n')
+                    self.out_data_sock_file.flush()
 
                 # 将 [time, [px, py], mag_quat_list, pdr_index]放入out_data_queue中
                 # IMU data[ (pdr_i + 1)*10 - 5 : (pdr_i + 1)*10 + 5]
@@ -97,3 +106,11 @@ class PdrThread(threading.Thread):
                     else:
                         window_buffer.append(cur_data)
                 continue
+
+    def is_stop_move(self, vx, vy):
+        # 根据pdr输出的速度推测用户是否停在原地不动
+        speed = math.hypot(vx, vy)
+        if speed < self.WALKING_SPEED:
+            return True
+        else:
+            return False
